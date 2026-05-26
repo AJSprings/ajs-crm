@@ -1,0 +1,174 @@
+// Lending CRM data model
+// SQLite for local dev — swap provider to postgresql for prod
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------- Users & auth --------------------
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("SALES_REP") // ADMIN | SALES_REP | LOAN_OFFICER
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedContacts  Contact[]  @relation("ContactOwner")
+  ownedCompanies Company[]  @relation("CompanyOwner")
+  ownedDeals     Deal[]     @relation("DealOwner")
+  ownedLoans     Loan[]     @relation("LoanOfficer")
+  activities     Activity[] @relation("ActivityAuthor")
+}
+
+// -------------------- CRM core --------------------
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  industry  String?
+  website   String?
+  phone     String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownerId  String?
+  owner    User?    @relation("CompanyOwner", fields: [ownerId], references: [id])
+  contacts Contact[]
+  deals    Deal[]
+  loans    Loan[]
+  activities Activity[]
+
+  @@index([name])
+}
+
+model Contact {
+  id        String   @id @default(cuid())
+  firstName String
+  lastName  String
+  email     String?
+  phone     String?
+  title     String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  ownerId   String?
+  owner     User?    @relation("ContactOwner", fields: [ownerId], references: [id])
+
+  deals      Deal[]
+  loans      Loan[]
+  activities Activity[]
+
+  @@index([lastName, firstName])
+  @@index([email])
+}
+
+// -------------------- Deals / pipeline --------------------
+
+model Deal {
+  id        String   @id @default(cuid())
+  title     String
+  amount    Float    @default(0)
+  stage     String   @default("LEAD") // LEAD | QUALIFIED | PROPOSAL | NEGOTIATION | WON | LOST
+  closeDate DateTime?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  ownerId   String?
+  owner     User?    @relation("DealOwner", fields: [ownerId], references: [id])
+
+  activities Activity[]
+
+  @@index([stage])
+}
+
+// -------------------- Loans --------------------
+
+model Loan {
+  id              String   @id @default(cuid())
+  reference       String   @unique // human-readable ID like LN-2026-0001
+  principal       Float
+  interestRate    Float    // annual %, e.g. 7.5
+  termMonths      Int
+  startDate       DateTime?
+  status          String   @default("APPLICATION") // APPLICATION | UNDERWRITING | APPROVED | DISBURSED | REPAYING | CLOSED | DEFAULTED | REJECTED
+  purpose         String?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  borrowerId String
+  borrower   Contact  @relation(fields: [borrowerId], references: [id], onDelete: Restrict)
+  companyId  String?
+  company    Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  officerId  String?
+  officer    User?    @relation("LoanOfficer", fields: [officerId], references: [id])
+
+  activities     Activity[]
+  loanActivities LoanActivity[]
+
+  @@index([status])
+  @@index([borrowerId])
+}
+
+model LoanActivity {
+  id        String   @id @default(cuid())
+  type      String   // DISBURSEMENT | PAYMENT | FEE | INTEREST_ACCRUAL | STATUS_CHANGE | NOTE
+  amount    Float    @default(0) // signed: positive disburses to borrower, payment is positive amount received
+  occurredAt DateTime @default(now())
+  note      String?
+  // For STATUS_CHANGE rows:
+  fromStatus String?
+  toStatus   String?
+  createdAt  DateTime @default(now())
+
+  loanId String
+  loan   Loan   @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@index([loanId, occurredAt])
+}
+
+// -------------------- Activities (cross-entity log) --------------------
+
+model Activity {
+  id        String   @id @default(cuid())
+  type      String   // CALL | EMAIL | MEETING | NOTE | TASK
+  subject   String
+  body      String?
+  dueAt     DateTime?
+  doneAt    DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  authorId  String?
+  author    User?    @relation("ActivityAuthor", fields: [authorId], references: [id])
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  dealId    String?
+  deal      Deal?    @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  loanId    String?
+  loan      Loan?    @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([companyId])
+  @@index([dealId])
+  @@index([loanId])
+}
