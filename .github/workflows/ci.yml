@@ -23,6 +23,9 @@ jobs:
       # NextAuth requires these at build time for Edge middleware
       NEXTAUTH_URL: "http://localhost:3000"
       NEXTAUTH_SECRET: "ci-only-secret-do-not-use-in-prod-ci-only-32b"
+      # Opt into Node 24 for action internals ahead of GitHub's 2026-06-02
+      # forced switch. Keeps us on the new default once it lands.
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
     steps:
       - name: Checkout
@@ -31,7 +34,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
